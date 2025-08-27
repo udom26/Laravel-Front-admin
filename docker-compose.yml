@@ -1,0 +1,13 @@
+version: '3.9'
+
+services:
+  laravel:
+    image: bitnami/laravel:10
+    container_name: laravel_admin
+    ports:
+      - "8000:8000"
+    volumes:
+      - C:/xampp/htdocs/admin-frontend:/app
+    environment:
+      - APP_ENV=local
+      - APP_DEBUG=true
