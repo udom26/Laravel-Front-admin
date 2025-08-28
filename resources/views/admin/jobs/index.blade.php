@@ -107,39 +107,112 @@
 @endsection
 
 @push('scripts')
-<script>
-(function(){
-  const socket = io(wsNs('/admin'), { transports: ['websocket', 'polling'] });
+  {{-- กำหนดค่าไว้ให้สคริปต์อื่นใช้ด้วย --}}
+  <script>window.WS_URL = @json(config('services.ws_url') ?? 'http://localhost:3000');</script>
 
-  socket.on('connect', () => console.log('WS connected', socket.id));
+  {{-- โหลด client จาก Nest (3000) แบบชัดเจน ไม่ผูกกับ origin ของ Laravel --}}
+  <script src="http://localhost:3000/socket.io/socket.io.js"></script>
 
-  socket.on('job.updated', (job) => {
-    const row = document.querySelector(`[data-row-id="${job.id}"]`);
-    if (!row) return;
+  <script>
+  (function () {
+    if (typeof io === 'undefined') {
+      console.error('Socket.IO client not loaded');
+      return;
+    }
 
-    row.querySelector('[data-col="message"]').textContent = job.message ?? '-';
-    row.querySelector('[data-col="status"]').innerHTML   = badgeStatus(job.status);
-    row.querySelector('[data-col="priority"]').innerHTML = badgePriority(job.priority);
-    row.querySelector('[data-col="updatedAt"]').textContent = job.updatedAt ?? '-';
-  });
+    const socket = io(window.WS_URL || 'http://localhost:3000', {
+      transports: ['websocket','polling'],
+      withCredentials: true,
+      path: '/socket.io',
+    });
 
-  function badgeStatus(st) {
-    const s = (st || '').toLowerCase();
-    const cls = s==='pending' ? 'bg-warning'
-             : (s==='done'||s==='completed') ? 'bg-success'
-             : s==='failed' ? 'bg-danger'
-             : 'bg-secondary';
-    return `<span class="badge ${cls}">${s||'-'}</span>`;
-  }
+    socket.on('connect', () => console.log('WS connected', socket.id));
 
-  function badgePriority(p) {
-    const s = (p || '').toLowerCase();
-    const cls = s==='high' ? 'bg-danger'
-             : s==='medium' ? 'bg-warning text-dark'
-             : s==='low' ? 'bg-success'
-             : 'bg-secondary';
-    return p ? `<span class="badge ${cls}">${s}</span>` : '-';
-  }
-})();
-</script>
+      socket.on('jobStatusUpdate', (job) => {
+        const id = job._id?.$oid || job._id || job.id;
+        if (!id) return;
+
+        const tbody = document.querySelector('table tbody');
+        let row = document.querySelector(`[data-row-id="${id}"]`);
+
+        // map priority/urgency ให้เป็นอันเดียวกัน
+        const prio = (job.priority ?? job.urgency ?? '').toString().toLowerCase();
+        const created = job.createdAt?.$date || job.createdAt || job.created_at || '-';
+        const updated = job.updatedAt || job.updated_at || created;
+
+        if (!row) {
+          // ไม่มีแถว → สร้างใหม่แล้ว prepend
+          row = document.createElement('tr');
+          row.setAttribute('data-row-id', id);
+          row.innerHTML = renderRowCells({
+            index: (tbody.querySelectorAll('tr').length + 1),
+            id,
+            message: job.message ?? '-',
+            status: job.status ?? 'pending',
+            priority: prio || null,
+            createdAt: created,
+            updatedAt: updated,
+          });
+          tbody.appendChild(row);
+        } else {
+          // มีแล้ว → อัปเดตค่าในแถว
+          row.querySelector('[data-col="message"]').textContent   = job.message ?? '-';
+          row.querySelector('[data-col="status"]').innerHTML      = badgeStatus(job.status);
+          row.querySelector('[data-col="priority"]').innerHTML    = badgePriority(prio || null);
+          row.querySelector('[data-col="updatedAt"]').textContent = updated;
+        }
+      });
+
+      // ===== helpers (ถ้ามีอยู่แล้วในไฟล์ เดิม ให้ใช้ของเดิมได้เลย) =====
+      function badgeStatus(st) {
+        const s = (st || '').toLowerCase();
+        const cls = s==='pending' ? 'bg-warning'
+                 : (s==='done' || s==='completed') ? 'bg-success'
+                 : s==='failed' ? 'bg-danger'
+                 : 'bg-secondary';
+        return `<span class="badge ${cls}">${s || '-'}</span>`;
+      }
+
+      function badgePriority(p) {
+        if (!p) return '-';
+        const s = String(p).toLowerCase();
+        const cls = s==='high' ? 'bg-danger'
+                 : s==='medium' ? 'bg-warning text-dark'
+                 : s==='low' ? 'bg-success'
+                 : 'bg-secondary';
+        return `<span class="badge ${cls}">${s}</span>`;
+      }
+
+      function renderRowCells({ index, id, message, status, priority, createdAt, updatedAt }) {
+        return `
+          <td>${index}</td>
+          <td data-col="message">${escapeHtml(message)}</td>
+          <td data-col="status">${badgeStatus(status)}</td>
+          <td data-col="priority">${badgePriority(priority)}</td>
+          <td data-col="updatedAt">${escapeHtml(updatedAt || createdAt || '-')}</td>
+          <td class="text-end">
+            <a href="/admin/jobs/${id}" class="btn btn-sm btn-info">ดู</a>
+            <form action="/admin/jobs/${id}" method="POST" style="display:inline-block;" onsubmit="return confirm('ยืนยันลบงานนี้หรือไม่?');">
+              <input type="hidden" name="_token" value="${getCsrf()}">
+              <input type="hidden" name="_method" value="DELETE">
+              <button class="btn btn-sm btn-danger" type="submit">ลบ</button>
+            </form>
+          </td>
+        `;
+      }
+
+      function getCsrf() {
+        const m = document.querySelector('meta[name="csrf-token"]');
+        return m ? m.getAttribute('content') : '';
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? '').replace(/[&<>"']/g, s => ({
+          '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[s]));
+      }
+      // ===== end helpers =====
+    })();
+    </script>
 @endpush
+

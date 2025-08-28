@@ -83,29 +83,26 @@
 @push('scripts')
 <script>
 (function(){
-  const socket = io(`${window.WS_URL}/admin`, { transports: ['websocket', 'polling'] });
+  const socket = io(window.WS_URL || location.origin, { transports: ['websocket','polling'], withCredentials: true });
   const jobId = @json($id);
 
   socket.on('connect', () => {
     console.log('WS connected for job detail', jobId);
-    socket.emit('join.job', { id: jobId }); // join room เฉพาะงาน
   });
 
-  socket.on('job.updated', (job) => {
-    if (job.id !== jobId) return;
+  socket.on('jobStatusUpdate', (job) => {
+    const id = job._id?.$oid || job._id || job.id;
+    if (id !== jobId) return;
 
-    // update DOM
+    const prio = job.priority ?? job.urgency ?? null;
+
     document.getElementById('job-message').textContent   = job.message ?? '-';
-    document.getElementById('job-status').innerHTML     = badgeStatus(job.status);
-    document.getElementById('job-summary').textContent  = job.resultSummary ?? '-';
-    document.getElementById('job-priority').innerHTML   = badgePriority(job.priority);
-    document.getElementById('job-category').textContent = job.category ?? '-';
-    document.getElementById('job-language').textContent = job.language ?? '-';
-    document.getElementById('job-updatedAt').textContent = job.updatedAt ?? '-';
-  });
-
-  window.addEventListener('beforeunload', () => {
-    socket.emit('leave.job', { id: jobId });
+    document.getElementById('job-status').innerHTML      = badgeStatus(job.status);
+    document.getElementById('job-summary').textContent   = job.resultSummary ?? '-';
+    document.getElementById('job-priority').innerHTML    = badgePriority(prio);
+    document.getElementById('job-category').textContent  = job.category ?? '-';
+    document.getElementById('job-language').textContent  = job.language ?? '-';
+    document.getElementById('job-updatedAt').textContent = job.updatedAt ?? job.updated_at ?? '-';
   });
 
   function badgeStatus(st) {

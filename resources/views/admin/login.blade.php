@@ -4,13 +4,6 @@
 <div class="container" style="max-width:400px;">
     <h3 class="text-center mb-4">Admin Login</h3>
 
-    @if(session('error'))
-        <div class="alert alert-danger">{{ session('error') }}</div>
-    @endif
-    @if(session('success'))
-        <div class="alert alert-success">{{ session('success') }}</div>
-    @endif
-
     <form method="POST" action="{{ route('login.submit') }}">
         @csrf
         <div class="mb-3">

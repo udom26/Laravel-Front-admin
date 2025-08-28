@@ -23,6 +23,7 @@ class JobController extends Controller
     $jobs = array_map(function ($job) {
         return [
             'id'            => $job['_id']['$oid'] ?? ($job['_id'] ?? $job['id'] ?? null),
+            'name' => $job['name'] ?? '',
             'message'       => $job['message'] ?? '',
             'status'        => $job['status'] ?? '',
             'resultSummary' => $job['resultSummary'] ?? '',
