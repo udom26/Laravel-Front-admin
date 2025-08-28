@@ -15,24 +15,54 @@ class JobController extends Controller
         $this->base = rtrim(config('api.base_url'), '/');
     }
 
-    /** GET /crud */
     public function index()
-    {
-        $res  = Http::acceptJson()->get("{$this->base}/crud");
-        $jobs = $res->successful() ? ($res->json() ?? []) : [];
+{
+    $res = Http::acceptJson()->get("{$this->base}/crud");
+    $rawJobs = $res->successful() ? ($res->json() ?? []) : [];
 
-        return view('admin.jobs.index', compact('jobs'));
-    }
+    $jobs = array_map(function ($job) {
+        return [
+            'id'            => $job['_id']['$oid'] ?? ($job['_id'] ?? $job['id'] ?? null),
+            'message'       => $job['message'] ?? '',
+            'status'        => $job['status'] ?? '',
+            'resultSummary' => $job['resultSummary'] ?? '',
+            'category'      => $job['category'] ?? '',
+            'priority'      => $job['priority'] ?? '',
+            'language'      => $job['language'] ?? '',
+            'created_at'    => $job['createdAt']['$date'] ?? ($job['created_at'] ?? $job['createdAt'] ?? ''),
+        ];
+    }, $rawJobs);
 
-    /** GET /crud/:id */
-    public function show(string $id)
-    {
-        $res = Http::acceptJson()->get("{$this->base}/crud/{$id}");
-        abort_unless($res->successful(), 404);
+    return view('admin.jobs.index', compact('jobs'));
+}
 
-        $job = $res->json();
-        return view('admin.jobs.show', compact('job'));
-    }
+
+
+  public function show(string $id)
+{
+    $res = Http::acceptJson()->get("{$this->base}/crud/{$id}");
+    abort_unless($res->successful(), 404);
+
+    $raw = $res->json() ?? [];
+
+    // Normalize โครง Mongo -> คีย์เรียบๆ ใช้ง่ายใน Blade
+    $job = [
+        'id'            => $raw['_id']['$oid'] ?? ($raw['_id'] ?? ($raw['id'] ?? '-')),
+        'message'       => $raw['message'] ?? '-',
+        'status'        => $raw['status'] ?? 'unknown',
+        'resultSummary' => $raw['resultSummary'] ?? ($raw['result']['summary'] ?? '-'),
+        'category'      => $raw['category'] ?? ($raw['result']['category'] ?? '-'),
+        'priority'      => $raw['priority'] ?? ($raw['result']['urgency'] ?? ($raw['urgency'] ?? null)),
+        'language'      => $raw['language'] ?? ($raw['result']['language'] ?? '-'),
+        'tone'          => $raw['tone'] ?? null,
+        'error'         => $raw['error'] ?? null,
+        'created_at'    => $raw['createdAt']['$date'] ?? ($raw['created_at'] ?? ($raw['createdAt'] ?? '-')),
+        'updated_at'    => $raw['updatedAt']['$date'] ?? ($raw['updated_at'] ?? ($raw['updatedAt'] ?? '-')),
+    ];
+
+    return view('admin.jobs.show', compact('job'));
+}
+
 
     /** GET (form) /admin/jobs/{id}/edit */
     public function edit(string $id)
@@ -72,16 +102,6 @@ class JobController extends Controller
         }
 
         return redirect()->route('admin.jobs.show', $id)->with('success', 'อัปเดตแล้ว');
-    }
-
-    /** PATCH helper → สั่ง Retry (ตั้งสถานะเป็น pending) */
-    public function retry(string $id)
-    {
-        $res = Http::acceptJson()->patch("{$this->base}/crud/{$id}", ['status' => 'pending']);
-
-        return redirect()
-            ->route('admin.jobs.index')
-            ->with($res->successful() ? 'success' : 'error', $res->successful() ? 'สั่ง Retry แล้ว' : 'Retry ไม่สำเร็จ');
     }
 
     /** DELETE /crud/:id */
