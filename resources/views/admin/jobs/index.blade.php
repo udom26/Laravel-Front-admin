@@ -7,13 +7,14 @@
         <h3>จัดการงาน (Jobs)</h3>
 
         {{-- ฟอร์มสร้างงานใหม่ --}}
-        <form action="{{ route('admin.jobs.store') }}" method="POST" class="d-flex gap-2" style="min-width: 380px;">
+        <form action="{{ route('admin.jobs.store') }}" method="POST" class="d-flex gap-2" style="min-width: 400px;">
             @csrf
             <input type="text" name="message" class="form-control" placeholder="พิมพ์ข้อความเพื่อสร้างงาน…" required>
-            <button class="btn btn-primary"><i class="fas fa-plus"></i> สร้างงาน</button>
+            <button class="btn btn-primary" style="white-space:nowrap; padding-left:1rem; padding-right:1rem;">
+              <i class="fas fa-plus" style="margin-right:.5rem;"></i>สร้างงาน
+            </button>
         </form>
     </div>
-
 
     <div class="card">
         <div class="card-body p-0">
@@ -21,6 +22,7 @@
                 <thead>
                     <tr>
                         <th>#</th>
+                        <th>ชื่อ</th>
                         <th>ข้อความ</th>
                         <th>สถานะ</th>
                         <th>ความเร่งด่วน</th>
@@ -68,6 +70,7 @@
 
                             <tr data-row-id="{{ $id }}">
                                 <td>{{ $index + 1 }}</td>
+                                <td data-col="name">{{ $job['name'] ?? '-' }}</td>
                                 <td data-col="message">{{ $job['message'] ?? '-' }}</td>
                                 <td data-col="status"><span class="badge {{ $statusBadge }}">{{ $st }}</span></td>
                                 <td data-col="priority">
@@ -89,6 +92,7 @@
                         {{-- ตัวอย่าง UI --}}
                         <tr data-row-id="sample">
                             <td>1</td>
+                            <td data-col="name">ตัวอย่างชื่อ</td>
                             <td data-col="message">ทดสอบระบบ</td>
                             <td data-col="status"><span class="badge bg-success">completed</span></td>
                             <td data-col="priority"><span class="badge bg-success">low</span></td>
@@ -107,18 +111,12 @@
 @endsection
 
 @push('scripts')
-  {{-- กำหนดค่าไว้ให้สคริปต์อื่นใช้ด้วย --}}
   <script>window.WS_URL = @json(config('services.ws_url') ?? 'http://localhost:3000');</script>
-
-  {{-- โหลด client จาก Nest (3000) แบบชัดเจน ไม่ผูกกับ origin ของ Laravel --}}
   <script src="http://localhost:3000/socket.io/socket.io.js"></script>
 
   <script>
   (function () {
-    if (typeof io === 'undefined') {
-      console.error('Socket.IO client not loaded');
-      return;
-    }
+    if (typeof io === 'undefined') { console.error('Socket.IO client not loaded'); return; }
 
     const socket = io(window.WS_URL || 'http://localhost:3000', {
       transports: ['websocket','polling'],
@@ -128,91 +126,123 @@
 
     socket.on('connect', () => console.log('WS connected', socket.id));
 
-      socket.on('jobStatusUpdate', (job) => {
-        const id = job._id?.$oid || job._id || job.id;
-        if (!id) return;
+    socket.on('jobStatusUpdate', (job) => {
+      const id = job._id?.$oid || job._id || job.id;
+      if (!id) return;
 
-        const tbody = document.querySelector('table tbody');
-        let row = document.querySelector(`[data-row-id="${id}"]`);
+      const tbody = document.querySelector('table tbody');
 
-        // map priority/urgency ให้เป็นอันเดียวกัน
-        const prio = (job.priority ?? job.urgency ?? '').toString().toLowerCase();
-        const created = job.createdAt?.$date || job.createdAt || job.created_at || '-';
-        const updated = job.updatedAt || job.updated_at || created;
+      // 1) ลบแถวตัวอย่างถ้ามี
+      const sample = tbody.querySelector('tr[data-row-id="sample"]');
+      if (sample) sample.remove();
 
-        if (!row) {
-          // ไม่มีแถว → สร้างใหม่แล้ว prepend
-          row = document.createElement('tr');
-          row.setAttribute('data-row-id', id);
-          row.innerHTML = renderRowCells({
-            index: (tbody.querySelectorAll('tr').length + 1),
-            id,
-            message: job.message ?? '-',
-            status: job.status ?? 'pending',
-            priority: prio || null,
-            createdAt: created,
-            updatedAt: updated,
-          });
-          tbody.appendChild(row);
-        } else {
-          // มีแล้ว → อัปเดตค่าในแถว
-          row.querySelector('[data-col="message"]').textContent   = job.message ?? '-';
-          row.querySelector('[data-col="status"]').innerHTML      = badgeStatus(job.status);
-          row.querySelector('[data-col="priority"]').innerHTML    = badgePriority(prio || null);
-          row.querySelector('[data-col="updatedAt"]').textContent = updated;
-        }
+      let row = tbody.querySelector(`[data-row-id="${id}"]`);
+
+      // map ฟิลด์ให้ใช้ง่าย
+      const name    = job.name ?? '-';
+      const prio    = (job.priority ?? job.urgency ?? '').toString().toLowerCase();
+      const created = job.createdAt?.$date || job.createdAt || job.created_at || '-';
+      const updated = job.updatedAt || job.updated_at || created;
+
+      if (!row) {
+        // 2) งานใหม่ → สร้างแถวแล้วต่อท้ายล่างสุด
+        row = document.createElement('tr');
+        row.setAttribute('data-row-id', id);
+        row.innerHTML = renderRowCells({
+          index: (tbody.querySelectorAll('tr').length + 1),
+          id,
+          name,
+          message: job.message ?? '-',
+          status: job.status ?? 'queued',
+          priority: prio || null,
+          createdAt: created,
+          updatedAt: updated,
+        });
+        tbody.appendChild(row);
+      } else {
+        // 3) งานเดิม → อัปเดตค่า ไม่ย้ายแถว
+        setCell(row, '[data-col="name"]',     name);
+        setCell(row, '[data-col="message"]',  job.message ?? '-');
+        setCellHTML(row, '[data-col="status"]',   badgeStatus(job.status));
+        setCellHTML(row, '[data-col="priority"]', badgePriority(prio || null));
+        setCell(row, '[data-col="updatedAt"]', updated);
+      }
+    });
+
+    socket.on('jobDeleted', (jobId) => {
+      const id = jobId?._id?.$oid || jobId?._id || jobId?.id || jobId;
+      const row = document.querySelector(`[data-row-id="${id}"]`);
+      if (row) row.remove();
+      renumberRows();
+    });
+
+    // ---------- helpers ----------
+    function setCell(tr, sel, text) {
+      const el = tr.querySelector(sel);
+      if (el) el.textContent = text ?? '-';
+    }
+    function setCellHTML(tr, sel, html) {
+      const el = tr.querySelector(sel);
+      if (el) el.innerHTML = html ?? '-';
+    }
+
+    function renderRowCells({ index, id, name, message, status, priority, createdAt, updatedAt }) {
+      return `
+        <td>${index}</td>
+        <td data-col="name">${escapeHtml(name)}</td> 
+        <td data-col="message">${escapeHtml(message)}</td>
+        <td data-col="status">${badgeStatus(status)}</td>
+        <td data-col="priority">${badgePriority(priority)}</td>
+        <td data-col="updatedAt">${escapeHtml(updatedAt || createdAt || '-')}</td>
+        <td class="text-end">
+          <a href="/admin/jobs/${id}" class="btn btn-sm btn-info">ดู</a>
+          <form action="/admin/jobs/${id}" method="POST" style="display:inline-block;" onsubmit="return confirm('ยืนยันลบงานนี้หรือไม่?');">
+            <input type="hidden" name="_token" value="${getCsrf()}">
+            <input type="hidden" name="_method" value="DELETE">
+            <button class="btn btn-sm btn-danger" type="submit">ลบ</button>
+          </form>
+        </td>
+      `;
+    }
+
+    function renumberRows() {
+      document.querySelectorAll('tbody tr').forEach((tr, i) => {
+        const first = tr.querySelector('td:first-child');
+        if (first) first.textContent = String(i + 1);
       });
+    }
 
-      // ===== helpers (ถ้ามีอยู่แล้วในไฟล์ เดิม ให้ใช้ของเดิมได้เลย) =====
-      function badgeStatus(st) {
-        const s = (st || '').toLowerCase();
-        const cls = s==='pending' ? 'bg-warning'
-                 : (s==='done' || s==='completed') ? 'bg-success'
-                 : s==='failed' ? 'bg-danger'
-                 : 'bg-secondary';
-        return `<span class="badge ${cls}">${s || '-'}</span>`;
-      }
+    function badgeStatus(st) {
+      const s = (st || '').toLowerCase();
+      const cls = s==='pending' ? 'bg-warning'
+               : (s==='done' || s==='completed') ? 'bg-success'
+               : s==='failed' ? 'bg-danger'
+               : 'bg-secondary';
+      return `<span class="badge ${cls}">${s || '-'}</span>`;
+    }
 
-      function badgePriority(p) {
-        if (!p) return '-';
-        const s = String(p).toLowerCase();
-        const cls = s==='high' ? 'bg-danger'
-                 : s==='medium' ? 'bg-warning text-dark'
-                 : s==='low' ? 'bg-success'
-                 : 'bg-secondary';
-        return `<span class="badge ${cls}">${s}</span>`;
-      }
+    function badgePriority(p) {
+      if (!p) return '-';
+      const s = String(p).toLowerCase();
+      const cls = s==='high' ? 'bg-danger'
+               : s==='medium' ? 'bg-warning text-dark'
+               : s==='low' ? 'bg-success'
+               : 'bg-secondary';
+      return `<span class="badge ${cls}">${s}</span>`;
+    }
 
-      function renderRowCells({ index, id, message, status, priority, createdAt, updatedAt }) {
-        return `
-          <td>${index}</td>
-          <td data-col="message">${escapeHtml(message)}</td>
-          <td data-col="status">${badgeStatus(status)}</td>
-          <td data-col="priority">${badgePriority(priority)}</td>
-          <td data-col="updatedAt">${escapeHtml(updatedAt || createdAt || '-')}</td>
-          <td class="text-end">
-            <a href="/admin/jobs/${id}" class="btn btn-sm btn-info">ดู</a>
-            <form action="/admin/jobs/${id}" method="POST" style="display:inline-block;" onsubmit="return confirm('ยืนยันลบงานนี้หรือไม่?');">
-              <input type="hidden" name="_token" value="${getCsrf()}">
-              <input type="hidden" name="_method" value="DELETE">
-              <button class="btn btn-sm btn-danger" type="submit">ลบ</button>
-            </form>
-          </td>
-        `;
-      }
+    function getCsrf() {
+      const m = document.querySelector('meta[name="csrf-token"]');
+      return m ? m.getAttribute('content') : '';
+    }
 
-      function getCsrf() {
-        const m = document.querySelector('meta[name="csrf-token"]');
-        return m ? m.getAttribute('content') : '';
-      }
-
-      function escapeHtml(str) {
-        return String(str ?? '').replace(/[&<>"']/g, s => ({
-          '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-        }[s]));
-      }
-      // ===== end helpers =====
-    })();
-    </script>
+    function escapeHtml(str) {
+      return String(str ?? '').replace(/[&<>"']/g, s => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[s]));
+    }
+  })();
+  </script>
 @endpush
+
 
